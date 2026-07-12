@@ -1,0 +1,6 @@
+{
+  "name": "Sabor Central",
+  "description": "Sistema de gestão e controle financeiro para a Cantina Dominical Pós-Culto Noturno, incluindo controle de vendas, relatórios em PDF, agenda de planejamento e painel de sugestões via QR Code.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
