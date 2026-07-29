@@ -1,0 +1,62 @@
+{
+  "entities": {
+    "SaleRecord": {
+      "title": "SaleRecord",
+      "description": "A record of sales for a particular Sunday pós-culto.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "items": { "type": "array" },
+        "totalCost": { "type": "number" },
+        "totalRevenue": { "type": "number" },
+        "netProfit": { "type": "number" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "date", "items", "totalCost", "totalRevenue", "netProfit"]
+    },
+    "AgendaEvent": {
+      "title": "AgendaEvent",
+      "description": "An event scheduled in the cantina agenda.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "category": { "type": "string" },
+        "responsible": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "completed", "canceled"] }
+      },
+      "required": ["id", "date", "title", "category", "responsible", "status"]
+    },
+    "FoodSuggestion": {
+      "title": "FoodSuggestion",
+      "description": "A food suggestion submitted by a customer or admin.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "foodName": { "type": "string" },
+        "submittedBy": { "type": "string" },
+        "date": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "upvotes": { "type": "number" }
+      },
+      "required": ["id", "foodName", "submittedBy", "date", "status", "upvotes"]
+    }
+  },
+  "firestore": {
+    "/sales/{saleId}": {
+      "schema": "SaleRecord",
+      "description": "Sunday sales records collection."
+    },
+    "/events/{eventId}": {
+      "schema": "AgendaEvent",
+      "description": "Cantina scheduling agenda events collection."
+    },
+    "/suggestions/{suggestionId}": {
+      "schema": "FoodSuggestion",
+      "description": "Dish suggestions from the congregation."
+    }
+  }
+}

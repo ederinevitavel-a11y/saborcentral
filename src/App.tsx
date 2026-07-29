@@ -20,8 +20,65 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { onAuthStateChanged, signInWithPopup, signOut, User } from 'firebase/auth';
-import { auth, googleProvider } from './firebase';
+import { auth, googleProvider, db } from './firebase';
+import { 
+  collection, 
+  doc, 
+  setDoc, 
+  deleteDoc, 
+  updateDoc, 
+  onSnapshot, 
+  query 
+} from 'firebase/firestore';
 import { SaleRecord, AgendaEvent, FoodSuggestion } from './types';
+
+// --- FIRESTORE ERROR HANDLING ---
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string | null;
+    email?: string | null;
+    emailVerified?: boolean | null;
+    isAnonymous?: boolean | null;
+    tenantId?: string | null;
+    providerInfo?: {
+      providerId?: string | null;
+      email?: string | null;
+    }[];
+  };
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData?.map(provider => ({
+        providerId: provider.providerId,
+        email: provider.email,
+      })) || []
+    },
+    operationType,
+    path
+  };
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
 import Dashboard from './components/Dashboard';
 import SalesManager from './components/SalesManager';
 import AgendaManager from './components/AgendaManager';
@@ -168,8 +225,10 @@ export default function App() {
         setAuthError('O pop-up de login foi bloqueado pelo seu navegador. Ative os pop-ups para continuar.');
       } else if (err.code === 'auth/closed-by-user') {
         setAuthError('O processo de login foi fechado antes de concluir.');
+      } else if (err.code === 'auth/unauthorized-domain') {
+        setAuthError(`Domínio não autorizado (auth/unauthorized-domain). Adicione este domínio atual (${window.location.hostname}) na lista de "Domínios Autorizados" no Console do Firebase (Authentication > Settings > Authorized Domains).`);
       } else {
-        setAuthError('Erro ao validar login com o Google. Tente novamente.');
+        setAuthError(`Erro ao validar login com o Google (${err.code || 'erro desconhecido'}): ${err.message || 'Tente novamente.'}`);
       }
     } finally {
       setAuthLoading(false);
@@ -186,20 +245,9 @@ export default function App() {
   };
 
   // --- APPLICATION STATE ---
-  const [sales, setSales] = useState<SaleRecord[]>(() => {
-    const saved = localStorage.getItem('sabor_central_sales');
-    return saved ? JSON.parse(saved) : INITIAL_SALES;
-  });
-
-  const [events, setEvents] = useState<AgendaEvent[]>(() => {
-    const saved = localStorage.getItem('sabor_central_events');
-    return saved ? JSON.parse(saved) : INITIAL_EVENTS;
-  });
-
-  const [suggestions, setSuggestions] = useState<FoodSuggestion[]>(() => {
-    const saved = localStorage.getItem('sabor_central_suggestions');
-    return saved ? JSON.parse(saved) : INITIAL_SUGGESTIONS;
-  });
+  const [sales, setSales] = useState<SaleRecord[]>([]);
+  const [events, setEvents] = useState<AgendaEvent[]>([]);
+  const [suggestions, setSuggestions] = useState<FoodSuggestion[]>([]);
 
   // Active Admin Tab
   const [activeTab, setActiveTab] = useState<'dashboard' | 'sales' | 'agenda' | 'suggestions'>('dashboard');
@@ -221,19 +269,6 @@ export default function App() {
     }
   }, [toastMessage]);
 
-  // --- PERSISTENCE IN LOCAL STORAGE (OFFLINE CAPABILITIES) ---
-  useEffect(() => {
-    localStorage.setItem('sabor_central_sales', JSON.stringify(sales));
-  }, [sales]);
-
-  useEffect(() => {
-    localStorage.setItem('sabor_central_events', JSON.stringify(events));
-  }, [events]);
-
-  useEffect(() => {
-    localStorage.setItem('sabor_central_suggestions', JSON.stringify(suggestions));
-  }, [suggestions]);
-
   // Handle Hash Changes dynamically (e.g. scanning QR Code redirect)
   useEffect(() => {
     const handleHashChange = () => {
@@ -243,55 +278,240 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
+  // --- REAL-TIME FIRESTORE DATA SYNC ---
+  useEffect(() => {
+    // suggestions is readable by anyone (even guests)
+    const q = query(collection(db, 'suggestions'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list: FoodSuggestion[] = [];
+      let hasMetadataDoc = false;
+      snapshot.forEach((doc) => {
+        if (doc.id === '_metadata') {
+          hasMetadataDoc = true;
+        } else {
+          list.push({ id: doc.id, ...doc.data() } as FoodSuggestion);
+        }
+      });
+      
+      setSuggestions(list);
+
+      // Seed if empty and we are authorized admin
+      if (!hasMetadataDoc) {
+        const emailLower = currentUser?.email?.toLowerCase();
+        if (currentUser && emailLower && ALLOWED_EMAILS.includes(emailLower)) {
+          setDoc(doc(db, 'suggestions', '_metadata'), { seeded: true })
+            .then(() => {
+              INITIAL_SUGGESTIONS.forEach(async (sug) => {
+                try {
+                  const { id, ...data } = sug;
+                  await setDoc(doc(db, 'suggestions', id), data);
+                } catch (e) {
+                  console.error('Error seeding suggestions:', e);
+                }
+              });
+            })
+            .catch((e) => {
+              console.error('Error creating suggestions metadata:', e);
+            });
+        }
+      }
+    }, (error) => {
+      console.error('Firestore suggestions read error:', error);
+    });
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  useEffect(() => {
+    const emailLower = currentUser?.email?.toLowerCase();
+    if (!currentUser || !emailLower || !ALLOWED_EMAILS.includes(emailLower)) {
+      setSales([]);
+      return;
+    }
+    const q = query(collection(db, 'sales'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list: SaleRecord[] = [];
+      let hasMetadataDoc = false;
+      snapshot.forEach((doc) => {
+        if (doc.id === '_metadata') {
+          hasMetadataDoc = true;
+        } else {
+          list.push({ id: doc.id, ...doc.data() } as SaleRecord);
+        }
+      });
+      
+      setSales(list);
+
+      // Seed database if empty
+      if (!hasMetadataDoc) {
+        setDoc(doc(db, 'sales', '_metadata'), { seeded: true })
+          .then(() => {
+            INITIAL_SALES.forEach(async (sale) => {
+              try {
+                const { id, ...data } = sale;
+                await setDoc(doc(db, 'sales', id), data);
+              } catch (e) {
+                console.error('Error seeding sales:', e);
+              }
+            });
+          })
+          .catch((e) => {
+            console.error('Error creating sales metadata:', e);
+          });
+      }
+    }, (error) => {
+      console.error('Firestore sales read error:', error);
+    });
+    return () => unsubscribe();
+  }, [currentUser]);
+
+  useEffect(() => {
+    const emailLower = currentUser?.email?.toLowerCase();
+    if (!currentUser || !emailLower || !ALLOWED_EMAILS.includes(emailLower)) {
+      setEvents([]);
+      return;
+    }
+    const q = query(collection(db, 'events'));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const list: AgendaEvent[] = [];
+      let hasMetadataDoc = false;
+      snapshot.forEach((doc) => {
+        if (doc.id === '_metadata') {
+          hasMetadataDoc = true;
+        } else {
+          list.push({ id: doc.id, ...doc.data() } as AgendaEvent);
+        }
+      });
+      
+      setEvents(list);
+
+      // Seed database if empty
+      if (!hasMetadataDoc) {
+        setDoc(doc(db, 'events', '_metadata'), { seeded: true })
+          .then(() => {
+            INITIAL_EVENTS.forEach(async (evt) => {
+              try {
+                const { id, ...data } = evt;
+                await setDoc(doc(db, 'events', id), data);
+              } catch (e) {
+                console.error('Error seeding events:', e);
+              }
+            });
+          })
+          .catch((e) => {
+            console.error('Error creating events metadata:', e);
+          });
+      }
+    }, (error) => {
+      console.error('Firestore events read error:', error);
+    });
+    return () => unsubscribe();
+  }, [currentUser]);
+
   // --- SALES MANIPULATION ---
-  const handleAddSale = (newSale: SaleRecord) => {
-    setSales(prev => [newSale, ...prev]);
+  const handleAddSale = async (newSale: SaleRecord) => {
+    try {
+      const { id, ...data } = newSale;
+      await setDoc(doc(db, 'sales', id), data);
+      setToastMessage('Lançamento de venda salvo com sucesso!');
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `sales/${newSale.id}`);
+    }
   };
 
-  const handleDeleteSale = (id: string) => {
-    setSales(prev => prev.filter(sale => sale.id !== id));
+  const handleDeleteSale = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'sales', id));
+      setToastMessage('Registro de venda excluído com sucesso!');
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `sales/${id}`);
+    }
   };
 
   // --- AGENDA MANIPULATION ---
-  const handleAddEvent = (newEvent: AgendaEvent) => {
-    setEvents(prev => [newEvent, ...prev]);
+  const handleAddEvent = async (newEvent: AgendaEvent) => {
+    try {
+      const { id, ...data } = newEvent;
+      await setDoc(doc(db, 'events', id), data);
+      setToastMessage('Evento adicionado com sucesso!');
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `events/${newEvent.id}`);
+    }
   };
 
-  const handleUpdateEventStatus = (id: string, status: 'pending' | 'completed' | 'canceled') => {
-    setEvents(prev => prev.map(evt => evt.id === id ? { ...evt, status } : evt));
+  const handleUpdateEventStatus = async (id: string, status: 'pending' | 'completed' | 'canceled') => {
+    try {
+      await updateDoc(doc(db, 'events', id), { status });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `events/${id}`);
+    }
   };
 
-  const handleDeleteEvent = (id: string) => {
-    setEvents(prev => prev.filter(evt => evt.id !== id));
+  const handleDeleteEvent = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'events', id));
+      setToastMessage('Evento excluído com sucesso!');
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `events/${id}`);
+    }
   };
 
   // --- SUGGESTIONS MANIPULATION ---
-  const handleAddSuggestion = (newSug: Omit<FoodSuggestion, 'id' | 'date' | 'status' | 'upvotes'>) => {
+  const handleAddSuggestion = async (newSug: Omit<FoodSuggestion, 'id' | 'date' | 'status' | 'upvotes'>) => {
+    const id = `sug-${Date.now()}`;
     const suggestion: FoodSuggestion = {
-      id: `sug-${Date.now()}`,
+      id,
       foodName: newSug.foodName,
       submittedBy: newSug.submittedBy,
       date: new Date().toISOString(),
       status: 'pending',
       upvotes: 1
     };
-    setSuggestions(prev => [suggestion, ...prev]);
+    try {
+      const { id: _, ...data } = suggestion;
+      await setDoc(doc(db, 'suggestions', id), data);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `suggestions/${id}`);
+    }
   };
 
-  const handleUpvoteSuggestion = (id: string) => {
-    setSuggestions(prev => prev.map(sug => sug.id === id ? { ...sug, upvotes: sug.upvotes + 1 } : sug));
+  const handleUpvoteSuggestion = async (id: string) => {
+    const target = suggestions.find(sug => sug.id === id);
+    if (!target) return;
+    try {
+      await updateDoc(doc(db, 'suggestions', id), {
+        upvotes: target.upvotes + 1
+      });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `suggestions/${id}`);
+    }
   };
 
-  const handleApproveSuggestion = (id: string) => {
-    setSuggestions(prev => prev.map(sug => sug.id === id ? { ...sug, status: 'approved' as const } : sug));
+  const handleApproveSuggestion = async (id: string) => {
+    try {
+      await updateDoc(doc(db, 'suggestions', id), {
+        status: 'approved'
+      });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `suggestions/${id}`);
+    }
   };
 
-  const handleRejectSuggestion = (id: string) => {
-    setSuggestions(prev => prev.map(sug => sug.id === id ? { ...sug, status: 'rejected' as const } : sug));
+  const handleRejectSuggestion = async (id: string) => {
+    try {
+      await updateDoc(doc(db, 'suggestions', id), {
+        status: 'rejected'
+      });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `suggestions/${id}`);
+    }
   };
 
-  const handleDeleteSuggestion = (id: string) => {
-    setSuggestions(prev => prev.filter(sug => sug.id !== id));
+  const handleDeleteSuggestion = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, 'suggestions', id));
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `suggestions/${id}`);
+    }
   };
 
   // Bridge action: Convert approved suggestion to planned event

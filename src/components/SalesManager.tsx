@@ -47,10 +47,16 @@ export default function SalesManager({ sales, onAddSale, onDeleteSale }: SalesMa
   });
   const [notes, setNotes] = useState('');
   
-  // Sale Items being added in current form
-  const [currentItems, setCurrentItems] = useState<Omit<SaleItem, 'id'>[]>([
-    { name: 'Pastel de Carne', quantity: 20, unitCost: 2.50, unitPrice: 6.00 }
-  ]);
+  // Sale Items being added in current form (persisted as a draft)
+  const [currentItems, setCurrentItems] = useState<Omit<SaleItem, 'id'>[]>(() => {
+    const saved = localStorage.getItem('sabor_central_current_items');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // Persist current draft items in local storage so they don't reset on tab switch or refresh
+  React.useEffect(() => {
+    localStorage.setItem('sabor_central_current_items', JSON.stringify(currentItems));
+  }, [currentItems]);
 
   // Form individual item inputs
   const [newItemName, setNewItemName] = useState('');
@@ -63,6 +69,7 @@ export default function SalesManager({ sales, onAddSale, onDeleteSale }: SalesMa
   const [expandedSales, setExpandedSales] = useState<{ [key: string]: boolean }>({});
   const [successMessage, setSuccessMessage] = useState('');
   const [saleIdToDelete, setSaleIdToDelete] = useState<string | null>(null);
+  const [itemIndexToDelete, setItemIndexToDelete] = useState<number | null>(null);
 
   // Handle preset selection to populate form fields
   const handleSelectPreset = (preset: typeof COMMON_ITEMS[0]) => {
@@ -115,11 +122,13 @@ export default function SalesManager({ sales, onAddSale, onDeleteSale }: SalesMa
     setNewItemQty(10);
     setNewItemTotalCost(25.00);
     setNewItemPrice(6.00);
+    setItemIndexToDelete(null);
   };
 
   // Remove individual item from temporary list
   const handleRemoveItemFromRecord = (index: number) => {
     setCurrentItems(currentItems.filter((_, i) => i !== index));
+    setItemIndexToDelete(null);
   };
 
   // Submit complete Sale Record
@@ -153,7 +162,7 @@ export default function SalesManager({ sales, onAddSale, onDeleteSale }: SalesMa
     onAddSale(newRecord);
     
     // Reset Form
-    setCurrentItems([{ name: 'Pastel de Queijo', quantity: 15, unitCost: 2.50, unitPrice: 6.00 }]);
+    setCurrentItems([]);
     setNotes('');
     setSuccessMessage('Ação de vendas registrada com sucesso!');
     setTimeout(() => setSuccessMessage(''), 4000);
@@ -383,35 +392,35 @@ export default function SalesManager({ sales, onAddSale, onDeleteSale }: SalesMa
                 
                 <div className="grid grid-cols-3 gap-2">
                   <div>
-                    <label className="text-[10px] text-zinc-500 uppercase font-bold block mb-1">Qtd</label>
+                    <label className="text-[9px] min-[380px]:text-[10px] text-zinc-500 uppercase font-bold block mb-1 truncate">Qtd</label>
                     <input
                       type="number"
                       min="1"
                       value={newItemQty}
                       onChange={(e) => handleQtyChange(Math.max(1, parseInt(e.target.value) || 0))}
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none font-mono"
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-2.5 py-2.5 sm:px-3 text-zinc-200 text-xs sm:text-sm focus:outline-none font-mono"
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] text-zinc-500 uppercase font-bold block mb-1">Custo Total (R$)</label>
+                    <label className="text-[9px] min-[380px]:text-[10px] text-zinc-500 uppercase font-bold block mb-1 truncate">Custo Total</label>
                     <input
                       type="number"
                       step="0.01"
                       min="0"
                       value={newItemTotalCost}
                       onChange={(e) => setNewItemTotalCost(Math.max(0, parseFloat(e.target.value) || 0))}
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none font-mono"
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-2.5 py-2.5 sm:px-3 text-zinc-200 text-xs sm:text-sm focus:outline-none font-mono"
                     />
                   </div>
                   <div>
-                    <label className="text-[10px] text-zinc-500 uppercase font-bold block mb-1">Venda Un (R$)</label>
+                    <label className="text-[9px] min-[380px]:text-[10px] text-zinc-500 uppercase font-bold block mb-1 truncate">Venda Un</label>
                     <input
                       type="number"
                       step="0.01"
                       min="0"
                       value={newItemPrice}
                       onChange={(e) => setNewItemPrice(Math.max(0, parseFloat(e.target.value) || 0))}
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none font-mono"
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-2.5 py-2.5 sm:px-3 text-zinc-200 text-xs sm:text-sm focus:outline-none font-mono"
                     />
                   </div>
                 </div>
@@ -471,13 +480,37 @@ export default function SalesManager({ sales, onAddSale, onDeleteSale }: SalesMa
                               R$ {itemProfit.toFixed(2)}
                             </span>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveItemFromRecord(index)}
-                            className="text-zinc-500 hover:text-red-400 hover:bg-red-500/10 p-2 rounded-lg transition cursor-pointer min-w-[34px] min-h-[34px] flex items-center justify-center"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {itemIndexToDelete === index ? (
+                            <div className="flex items-center gap-1.5 bg-zinc-900 border border-red-500/30 rounded-xl p-1 animate-fadeIn shrink-0">
+                              <span className="text-[10px] text-zinc-400 px-1 font-semibold font-sans">Excluir?</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  handleRemoveItemFromRecord(index);
+                                  setItemIndexToDelete(null);
+                                }}
+                                className="text-[10px] bg-red-500 hover:bg-red-600 text-white font-bold px-2 py-1 rounded-lg transition cursor-pointer"
+                              >
+                                Sim
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setItemIndexToDelete(null)}
+                                className="text-[10px] bg-zinc-800 hover:bg-zinc-750 text-zinc-300 font-semibold px-2 py-1 rounded-lg transition cursor-pointer"
+                              >
+                                Não
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setItemIndexToDelete(index)}
+                              className="text-zinc-500 hover:text-red-400 hover:bg-red-500/10 p-2 rounded-lg transition cursor-pointer min-w-[34px] min-h-[34px] flex items-center justify-center shrink-0"
+                              title="Remover Item"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
@@ -644,7 +677,10 @@ export default function SalesManager({ sales, onAddSale, onDeleteSale }: SalesMa
                         <div className="bg-zinc-900/40 px-4 py-4 border-t border-zinc-900 space-y-4 text-xs">
                           {/* Items Breakdown Table */}
                           <div className="space-y-1.5">
-                            <span className="font-bold text-[10px] text-zinc-500 uppercase tracking-wider block">Detalhamento Financeiro do Lançamento:</span>
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                              <span className="font-bold text-[10px] text-zinc-500 uppercase tracking-wider block">Detalhamento Financeiro do Lançamento:</span>
+                              <span className="text-[9px] text-zinc-500 font-mono sm:hidden">Arrastar para os lados para ver mais ↔</span>
+                            </div>
                             <div className="overflow-x-auto border border-zinc-800 rounded-xl">
                               <table className="w-full text-left min-w-[550px]">
                                 <thead className="bg-zinc-900/80 text-zinc-400 text-[10px] uppercase font-bold">

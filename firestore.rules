@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper to check if user is a signed-in authorized administrator
+    function isAuthorizedAdmin() {
+      return request.auth != null && 
+             request.auth.token.email != null && 
+             (request.auth.token.email.lower() == 'ederlcs@hotmail.com' ||
+              request.auth.token.email.lower() == 'claudiadeoliveirarangel@gmail.com' ||
+              request.auth.token.email.lower() == 'camilatavares_@hotmail.com' ||
+              request.auth.token.email.lower() == 'andressa.professora28@gmail.com');
+    }
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Sales Collection rules
+    match /sales/{saleId} {
+      allow read, write: if isAuthorizedAdmin();
+    }
+
+    // Events (Agenda) Collection rules
+    match /events/{eventId} {
+      allow read, write: if isAuthorizedAdmin();
+    }
+
+    // Suggestions Collection rules
+    match /suggestions/{suggestionId} {
+      // Anyone can read suggestions (required for the customer portal to view and upvote)
+      allow read: if true;
+      
+      // Anyone can submit a suggestion as long as it defaults to 'pending' and starts with 1 upvote
+      // Authorized admins have full write privileges to bypass these constraints (e.g. during seeding or metadata writes)
+      allow create: if isAuthorizedAdmin() || 
+                       (request.resource.data.status == 'pending' && 
+                        request.resource.data.upvotes == 1 &&
+                        request.resource.data.foodName is string &&
+                        request.resource.data.foodName.size() > 0 &&
+                        request.resource.data.foodName.size() <= 200 &&
+                        request.resource.data.submittedBy is string &&
+                        request.resource.data.submittedBy.size() > 0 &&
+                        request.resource.data.submittedBy.size() <= 100);
+                       
+      // Upvotes are open to anyone (must increment by exactly 1 and keep other data intact)
+      // Admins have full update rights (e.g. approving/rejecting a suggestion)
+      allow update: if isAuthorizedAdmin() || 
+                       (request.resource.data.upvotes == resource.data.upvotes + 1 && 
+                        request.resource.data.status == resource.data.status && 
+                        request.resource.data.foodName == resource.data.foodName && 
+                        request.resource.data.submittedBy == resource.data.submittedBy && 
+                        request.resource.data.date == resource.data.date);
+                        
+      // Only authorized admins can delete suggestions
+      allow delete: if isAuthorizedAdmin();
+    }
+  }
+}

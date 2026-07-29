@@ -206,8 +206,19 @@ export default function Dashboard({ sales, events }: DashboardProps) {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-                  <XAxis dataKey="date" stroke="#71717a" fontSize={11} tickLine={false} />
-                  <YAxis stroke="#71717a" fontSize={11} tickLine={false} />
+                  <XAxis 
+                    dataKey="date" 
+                    stroke="#71717a" 
+                    fontSize={10} 
+                    tickLine={false} 
+                    minTickGap={20}
+                  />
+                  <YAxis 
+                    stroke="#71717a" 
+                    fontSize={10} 
+                    tickLine={false} 
+                    tickFormatter={(value) => `R$ ${value >= 1000 ? (value / 1000).toFixed(0) + 'k' : value}`}
+                  />
                   <Tooltip 
                     contentStyle={{ backgroundColor: '#18181b', borderColor: '#27272a', borderRadius: '12px' }}
                     labelStyle={{ color: '#ffffff', fontWeight: 'bold' }}
