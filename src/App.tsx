@@ -252,6 +252,9 @@ export default function App() {
   // Active Admin Tab
   const [activeTab, setActiveTab] = useState<'dashboard' | 'sales' | 'agenda' | 'suggestions'>('dashboard');
 
+  // Selected event ID shared across Agenda and Sales
+  const [selectedEventId, setSelectedEventId] = useState<string>('');
+
   // Custom Toast notification state
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -532,11 +535,12 @@ export default function App() {
     };
 
     handleAddEvent(convertedEvent);
+    setSelectedEventId(convertedEvent.id);
     
     // Mark suggestion as converted / delete it / or just keep it
     // Let's keep it approved and give success feedback
     setToastMessage(`Sucesso! A sugestão "${suggestion.foodName}" foi convertida e adicionada ao Cronograma de Planejamento para o dia ${nextSunday.split('-').reverse().join('/')}.`);
-    setActiveTab('agenda');
+    setActiveTab('sales');
   };
 
   // Toggle hash when entering/exiting suggestion view manually
@@ -696,9 +700,9 @@ export default function App() {
               </div>
 
               {/* Status Indicator */}
-              <div className="hidden md:flex items-center gap-1.5 bg-zinc-900 border border-zinc-800 px-3 py-1 rounded-full text-xs text-zinc-400 font-medium">
-                <div className="w-2 h-2 bg-emerald-500 rounded-full animate-ping" />
-                <span>Modo de Operação Offline Habilitado</span>
+              <div className="hidden md:flex items-center gap-1.5 bg-emerald-950/40 border border-emerald-500/20 px-3 py-1 rounded-full text-xs text-emerald-400 font-medium">
+                <div className="w-2 h-2 bg-emerald-400 rounded-full animate-ping" />
+                <span>Sincronização em Tempo Real (Firestore)</span>
               </div>
 
               {/* User Profile */}
@@ -742,22 +746,13 @@ export default function App() {
                 <span>Métricas & Dashboard</span>
               </button>
 
-              {/* Tab: Sales Records */}
+              {/* Tab: Agenda & Vendas (Unified) */}
               <button
                 onClick={() => setActiveTab('sales')}
                 className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl transition cursor-pointer shrink-0 ${activeTab === 'sales' ? 'bg-zinc-900 text-white border border-zinc-800' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/40'}`}
               >
-                <TrendingUp className="w-4 h-4" />
-                <span>Registrar Vendas</span>
-              </button>
-
-              {/* Tab: Agenda */}
-              <button
-                onClick={() => setActiveTab('agenda')}
-                className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold rounded-xl transition cursor-pointer shrink-0 ${activeTab === 'agenda' ? 'bg-zinc-900 text-white border border-zinc-800' : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-900/40'}`}
-              >
-                <CalendarDays className="w-4 h-4" />
-                <span>Agenda & Planejamento</span>
+                <CalendarDays className="w-4 h-4 text-orange-500" />
+                <span>Agenda & Vendas</span>
               </button>
 
               {/* Tab: Suggestions */}
@@ -782,20 +777,109 @@ export default function App() {
           )}
 
           {activeTab === 'sales' && (
-            <SalesManager 
-              sales={sales} 
-              onAddSale={handleAddSale} 
-              onDeleteSale={handleDeleteSale} 
-            />
-          )}
+            <div className="space-y-10">
+              {/* Introduction Banner */}
+              <div className="bg-zinc-900/30 border border-zinc-850 p-6 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <h2 className="text-xl md:text-2xl font-display font-extrabold text-white tracking-tight flex items-center gap-2">
+                    <CalendarDays className="w-6 h-6 text-orange-500" />
+                    <span>Agenda & Vendas Integradas</span>
+                  </h2>
+                  <p className="text-zinc-400 text-xs sm:text-sm leading-relaxed max-w-3xl">
+                    Planeje seus cardápios na agenda e registre os lançamentos financeiros depois. Clique em <strong>"Registrar Vendas do Evento"</strong> na agenda para preencher o formulário instantaneamente e carregar o cardápio sugerido!
+                  </p>
+                </div>
+              </div>
 
-          {activeTab === 'agenda' && (
-            <AgendaManager 
-              events={events} 
-              onAddEvent={handleAddEvent} 
-              onUpdateEventStatus={handleUpdateEventStatus} 
-              onDeleteEvent={handleDeleteEvent} 
-            />
+              {/* Quick Jump Bar for Mobile and Tablet */}
+              <div className="flex xl:hidden items-center gap-2 overflow-x-auto pb-1 scrollbar-none -mx-4 px-4 sm:mx-0 sm:px-0">
+                <button
+                  onClick={() => {
+                    const el = document.getElementById('agenda-form-section');
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-2.5 bg-zinc-900 hover:bg-zinc-850 text-zinc-300 rounded-xl text-xs font-semibold border border-zinc-800 shrink-0 cursor-pointer transition active:scale-95"
+                >
+                  <CalendarDays className="w-3.5 h-3.5 text-orange-500" />
+                  <span>📅 Agendar</span>
+                </button>
+                <button
+                  onClick={() => {
+                    const el = document.getElementById('agenda-list-section');
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-2.5 bg-zinc-900 hover:bg-zinc-850 text-zinc-300 rounded-xl text-xs font-semibold border border-zinc-800 shrink-0 cursor-pointer transition active:scale-95"
+                >
+                  <CalendarDays className="w-3.5 h-3.5 text-orange-400" />
+                  <span>📋 Agenda</span>
+                </button>
+                <button
+                  onClick={() => {
+                    const el = document.getElementById('sales-form-section');
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-2.5 bg-zinc-900 hover:bg-zinc-850 text-zinc-300 rounded-xl text-xs font-semibold border border-zinc-800 shrink-0 cursor-pointer transition active:scale-95"
+                >
+                  <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>💵 Nova Venda</span>
+                </button>
+                <button
+                  onClick={() => {
+                    const el = document.getElementById('sales-list-section');
+                    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-2.5 bg-zinc-900 hover:bg-zinc-850 text-zinc-300 rounded-xl text-xs font-semibold border border-zinc-800 shrink-0 cursor-pointer transition active:scale-95"
+                >
+                  <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+                  <span>📜 Histórico Caixa</span>
+                </button>
+              </div>
+
+              {/* Unified Grid */}
+              <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
+                {/* Column 1: Agenda & Planejamento */}
+                <div className="xl:col-span-5 space-y-4">
+                  <div className="border-b border-zinc-900 pb-3 flex items-center justify-between">
+                    <h3 className="text-base font-display font-bold text-white flex items-center gap-2">
+                      <CalendarDays className="w-5 h-5 text-orange-500" />
+                      <span>1. Agenda de Planejamento</span>
+                    </h3>
+                  </div>
+                  <AgendaManager 
+                    events={events} 
+                    onAddEvent={handleAddEvent} 
+                    onUpdateEventStatus={handleUpdateEventStatus} 
+                    onDeleteEvent={handleDeleteEvent} 
+                    onSelectEventForSale={(id) => {
+                      setSelectedEventId(id);
+                      const el = document.getElementById('sales-form-section');
+                      if (el) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      }
+                    }}
+                  />
+                </div>
+
+                {/* Column 2: Registro de Vendas & Caixa */}
+                <div id="sales-form-section" className="xl:col-span-7 space-y-4 border-t xl:border-t-0 xl:border-l border-zinc-900/60 xl:pl-8 pt-8 xl:pt-0 animate-fadeIn">
+                  <div className="border-b border-zinc-900 pb-3">
+                    <h3 className="text-base font-display font-bold text-white flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5 text-emerald-500" />
+                      <span>2. Registro de Vendas & Caixa</span>
+                    </h3>
+                  </div>
+                  <SalesManager 
+                    sales={sales} 
+                    events={events}
+                    onAddSale={handleAddSale} 
+                    onDeleteSale={handleDeleteSale} 
+                    onUpdateEventStatus={handleUpdateEventStatus}
+                    selectedEventId={selectedEventId}
+                    onSelectEventId={setSelectedEventId}
+                  />
+                </div>
+              </div>
+            </div>
           )}
 
           {activeTab === 'suggestions' && (
@@ -824,7 +908,7 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4">
-            <span>Sincronização: <strong className="text-emerald-400 font-medium">100% Salvo Localmente</strong></span>
+            <span>Sincronização: <strong className="text-emerald-400 font-medium">Nuvem & Cache Local Ativos</strong></span>
             <span>Estilo: Dark Theme</span>
           </div>
 

@@ -6,6 +6,7 @@
 import React, { useState } from 'react';
 import { 
   Calendar, 
+  CalendarDays,
   Plus, 
   Trash2, 
   FileText, 
@@ -18,14 +19,18 @@ import {
   UtensilsCrossed,
   DollarSign
 } from 'lucide-react';
-import { SaleRecord, SaleItem } from '../types';
+import { SaleRecord, SaleItem, AgendaEvent } from '../types';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 interface SalesManagerProps {
   sales: SaleRecord[];
+  events: AgendaEvent[];
   onAddSale: (sale: SaleRecord) => void;
   onDeleteSale: (id: string) => void;
+  onUpdateEventStatus?: (id: string, status: 'pending' | 'completed' | 'canceled') => void;
+  selectedEventId?: string;
+  onSelectEventId?: (id: string) => void;
 }
 
 const COMMON_ITEMS = [
@@ -39,13 +44,112 @@ const COMMON_ITEMS = [
   { name: 'Água Mineral', defaultCost: 0.80, defaultPrice: 3.00 },
 ];
 
-export default function SalesManager({ sales, onAddSale, onDeleteSale }: SalesManagerProps) {
+export default function SalesManager({ 
+  sales, 
+  events, 
+  onAddSale, 
+  onDeleteSale, 
+  onUpdateEventStatus,
+  selectedEventId: propSelectedEventId,
+  onSelectEventId
+}: SalesManagerProps) {
   // Form State
   const [date, setDate] = useState<string>(() => {
     // Default to today in YYYY-MM-DD
     return new Date().toISOString().split('T')[0];
   });
   const [notes, setNotes] = useState('');
+  const [localSelectedEventId, setLocalSelectedEventId] = useState<string>('');
+
+  const selectedEventId = propSelectedEventId !== undefined ? propSelectedEventId : localSelectedEventId;
+  const setSelectedEventId = onSelectEventId !== undefined ? onSelectEventId : setLocalSelectedEventId;
+
+  const selectedEvent = events?.find(e => e.id === selectedEventId);
+
+  // Sync date and notes when selectedEventId changes
+  React.useEffect(() => {
+    if (selectedEventId) {
+      const evt = events?.find(e => e.id === selectedEventId);
+      if (evt) {
+        setDate(evt.date);
+        setNotes(`Arrecadação referente ao evento planejado: "${evt.title}". Organizador: ${evt.responsible}.`);
+      }
+    }
+  }, [selectedEventId, events]);
+
+  const handleEventSelect = (eventId: string) => {
+    setSelectedEventId(eventId);
+    if (eventId) {
+      const evt = events?.find(e => e.id === eventId);
+      if (evt) {
+        setDate(evt.date);
+        setNotes(`Arrecadação referente ao evento planejado: "${evt.title}". Organizador: ${evt.responsible}.`);
+      }
+    } else {
+      setNotes('');
+    }
+  };
+
+  const handleAutoPopulateEventItems = () => {
+    if (!selectedEvent) return;
+    const itemsToAdd: Omit<SaleItem, 'id'>[] = [];
+    
+    // Convert text to lowercase for comparison
+    const searchText = `${selectedEvent.title} ${selectedEvent.description}`.toLowerCase();
+    
+    COMMON_ITEMS.forEach(preset => {
+      const presetWord = preset.name.toLowerCase();
+      // Match exactly or variations of words
+      let isMatched = searchText.includes(presetWord);
+      
+      // Additional semantic matching for common foods
+      if (!isMatched) {
+        if (presetWord.includes('pastel')) {
+          isMatched = searchText.includes('pastel') || searchText.includes('pasteis') || searchText.includes('pastelada');
+        } else if (presetWord.includes('cachorro quente')) {
+          isMatched = searchText.includes('cachorro quente') || searchText.includes('hot dog') || searchText.includes('hot-dog');
+        } else if (presetWord.includes('suco')) {
+          isMatched = searchText.includes('suco') || searchText.includes('sucos');
+        } else if (presetWord.includes('refrigerante')) {
+          isMatched = searchText.includes('refrigerante') || searchText.includes('refris') || searchText.includes('bebida') || searchText.includes('bebidas');
+        } else if (presetWord.includes('bolo')) {
+          isMatched = searchText.includes('bolo') || searchText.includes('bolos') || searchText.includes('doce') || searchText.includes('doces');
+        }
+      }
+      
+      if (isMatched) {
+        let qty = 15;
+        if (presetWord.includes('pastel')) qty = 20;
+        else if (presetWord.includes('cachorro')) qty = 30;
+        else if (presetWord.includes('refrigerante')) qty = 25;
+        
+        itemsToAdd.push({
+          name: preset.name,
+          quantity: qty,
+          unitCost: preset.defaultCost,
+          unitPrice: preset.defaultPrice
+        });
+      }
+    });
+
+    if (itemsToAdd.length > 0) {
+      setCurrentItems(itemsToAdd);
+      setSuccessMessage(`Sugeridos ${itemsToAdd.length} itens do cardápio para o evento!`);
+      setTimeout(() => setSuccessMessage(''), 4000);
+    } else {
+      // Create a default custom item representing the event
+      setCurrentItems([
+        {
+          name: selectedEvent.title.length > 30 ? selectedEvent.title.substring(0, 30) + '...' : selectedEvent.title,
+          quantity: 25,
+          unitCost: 3.00,
+          unitPrice: 7.00
+        }
+      ]);
+      setSuccessMessage('Lançamento inicial gerado com base no título do evento!');
+      setTimeout(() => setSuccessMessage(''), 4000);
+    }
+  };
   
   // Sale Items being added in current form (persisted as a draft)
   const [currentItems, setCurrentItems] = useState<Omit<SaleItem, 'id'>[]>(() => {
@@ -156,12 +260,20 @@ export default function SalesManager({ sales, onAddSale, onDeleteSale }: SalesMa
       totalCost,
       totalRevenue,
       netProfit,
-      notes: notes.trim() || undefined
+      notes: notes.trim() || undefined,
+      eventId: selectedEventId || undefined,
+      eventName: selectedEvent?.title || undefined
     };
 
     onAddSale(newRecord);
     
+    // If an event was selected, mark it as completed automatically
+    if (selectedEventId && onUpdateEventStatus) {
+      onUpdateEventStatus(selectedEventId, 'completed');
+    }
+    
     // Reset Form
+    setSelectedEventId('');
     setCurrentItems([]);
     setNotes('');
     setSuccessMessage('Ação de vendas registrada com sucesso!');
@@ -329,15 +441,79 @@ export default function SalesManager({ sales, onAddSale, onDeleteSale }: SalesMa
       )}
 
       {/* Main Two-Column Layout for Input and History */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-12 xl:grid-cols-1 gap-8">
         
         {/* Left Column: Form to Add Sales */}
-        <div className="lg:col-span-5 bg-zinc-900/50 rounded-2xl border border-zinc-800 p-5 sm:p-6 flex flex-col justify-between">
+        <div className="lg:col-span-5 xl:col-span-1 bg-zinc-900/50 rounded-2xl border border-zinc-800 p-5 sm:p-6 flex flex-col justify-between">
           <form onSubmit={handleSubmitSaleRecord} className="space-y-6">
             <h3 className="text-base font-display font-bold text-white flex items-center gap-2 pb-2 border-b border-zinc-800">
               <Plus className="w-5 h-5 text-orange-500" />
               <span>Registrar Nova Ação de Venda</span>
             </h3>
+
+            {/* Event Selector */}
+            {events && events.length > 0 && (
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-zinc-400 uppercase tracking-wide flex items-center gap-1.5">
+                  <CalendarDays className="w-3.5 h-3.5 text-orange-500" />
+                  <span>Vincular a Evento Planejado (Opcional)</span>
+                </label>
+                <select
+                  value={selectedEventId}
+                  onChange={(e) => handleEventSelect(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-orange-500 transition cursor-pointer font-sans"
+                >
+                  <option value="">-- Lançamento avulso (Sem evento vinculado) --</option>
+                  
+                  {events.filter(evt => evt.status === 'pending').length > 0 && (
+                    <optgroup label="Eventos Planejados / Pendentes">
+                      {events.filter(evt => evt.status === 'pending').map(evt => (
+                        <option key={evt.id} value={evt.id}>
+                          {evt.date.split('-').reverse().join('/')} - {evt.title} ({evt.responsible})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+
+                  {events.filter(evt => evt.status !== 'pending').length > 0 && (
+                    <optgroup label="Histórico de Eventos">
+                      {events.filter(evt => evt.status !== 'pending').map(evt => (
+                        <option key={evt.id} value={evt.id}>
+                          [{evt.status === 'completed' ? 'Concluído' : 'Cancelado'}] {evt.date.split('-').reverse().join('/')} - {evt.title}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+                
+                {selectedEvent && (
+                  <div className="bg-orange-500/5 border border-orange-500/15 rounded-xl p-3.5 text-xs text-orange-400 space-y-1.5 animate-fadeIn">
+                    <p className="font-bold flex items-center gap-1 text-orange-400 text-[11px] uppercase tracking-wide">
+                      <CalendarDays className="w-3.5 h-3.5" />
+                      <span>Detalhes do Evento</span>
+                    </p>
+                    <p className="font-bold text-zinc-100">{selectedEvent.title}</p>
+                    {selectedEvent.description && (
+                      <p className="text-zinc-400 text-[11px] leading-relaxed italic">{selectedEvent.description}</p>
+                    )}
+                    <div className="text-[10px] text-zinc-500 flex flex-wrap gap-x-3 gap-y-0.5 pt-1 font-mono">
+                      <span>Organização: <strong>{selectedEvent.responsible}</strong></span>
+                      <span>Categoria: <strong>{selectedEvent.category}</strong></span>
+                    </div>
+                    <div className="pt-2 flex items-center justify-between border-t border-zinc-800/40 mt-1">
+                      <span className="text-[10px] text-zinc-400 font-sans">Deseja carregar sugestão de cardápio do evento?</span>
+                      <button
+                        type="button"
+                        onClick={handleAutoPopulateEventItems}
+                        className="bg-orange-600 hover:bg-orange-500 text-white font-bold px-2.5 py-1 rounded-lg text-[10px] transition cursor-pointer select-none active:scale-95 shadow"
+                      >
+                        Carregar Cardápio
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Date Input */}
             <div className="space-y-2">
@@ -569,7 +745,7 @@ export default function SalesManager({ sales, onAddSale, onDeleteSale }: SalesMa
         </div>
 
         {/* Right Column: History List */}
-        <div className="lg:col-span-7 bg-zinc-900/50 rounded-2xl border border-zinc-800 p-5 sm:p-6 flex flex-col">
+        <div id="sales-list-section" className="lg:col-span-7 xl:col-span-1 bg-zinc-900/50 rounded-2xl border border-zinc-800 p-5 sm:p-6 flex flex-col">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800 mb-6">
             <h3 className="text-base font-display font-bold text-white flex items-center gap-2">
               <UtensilsCrossed className="w-5 h-5 text-orange-500" />
@@ -614,13 +790,19 @@ export default function SalesManager({ sales, onAddSale, onDeleteSale }: SalesMa
                             <span className="text-xs font-semibold text-zinc-200">{displayDate}</span>
                           </div>
 
-                          <div>
+                          <div className="min-w-0">
                             <span className="text-xs text-zinc-400 font-bold block uppercase tracking-wider">
                               {sale.items.length} {sale.items.length === 1 ? 'item' : 'itens'} lançado{sale.items.length === 1 ? '' : 's'}
                             </span>
                             <span className="text-sm text-zinc-300 mt-0.5 block truncate max-w-[200px] sm:max-w-xs font-medium">
                               {sale.items.map(it => `${it.name} (${it.quantity}x)`).join(', ')}
                             </span>
+                            {sale.eventName && (
+                              <span className="inline-flex items-center gap-1 mt-1 text-[10px] bg-orange-500/10 text-orange-400 border border-orange-500/20 px-2 py-0.5 rounded-md font-medium">
+                                <CalendarDays className="w-3 h-3 text-orange-400" />
+                                <span>Evento: {sale.eventName}</span>
+                              </span>
+                            )}
                           </div>
                         </div>
 

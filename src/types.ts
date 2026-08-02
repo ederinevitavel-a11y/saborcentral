@@ -19,6 +19,8 @@ export interface SaleRecord {
   totalRevenue: number;
   netProfit: number;
   notes?: string;
+  eventId?: string;
+  eventName?: string;
 }
 
 export interface AgendaEvent {

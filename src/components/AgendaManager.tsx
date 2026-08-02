@@ -15,7 +15,8 @@ import {
   XCircle, 
   Filter, 
   Search,
-  BookOpen
+  BookOpen,
+  TrendingUp
 } from 'lucide-react';
 import { AgendaEvent } from '../types';
 
@@ -24,15 +25,17 @@ interface AgendaManagerProps {
   onAddEvent: (event: AgendaEvent) => void;
   onUpdateEventStatus: (id: string, status: 'pending' | 'completed' | 'canceled') => void;
   onDeleteEvent: (id: string) => void;
+  onSelectEventForSale?: (id: string) => void;
 }
 
-const CATEGORIES = ['Salgados', 'Doces', 'Bebidas', 'Eventos Especiais', 'Outros'];
+const CATEGORIES = ['Salgados', 'Doces', 'Salgados e Doces', 'Bebidas', 'Eventos Especiais', 'Outros'];
 
 export default function AgendaManager({ 
   events, 
   onAddEvent, 
   onUpdateEventStatus, 
-  onDeleteEvent 
+  onDeleteEvent,
+  onSelectEventForSale
 }: AgendaManagerProps) {
   // Form state
   const [date, setDate] = useState(() => {
@@ -105,10 +108,10 @@ export default function AgendaManager({
       </div>
 
       {/* Main Two Column layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-12 xl:grid-cols-1 gap-8">
         
         {/* Left Column: Register New Planned Event */}
-        <div className="lg:col-span-5 bg-zinc-900/50 rounded-2xl border border-zinc-800 p-5 sm:p-6 h-fit">
+        <div id="agenda-form-section" className="lg:col-span-5 xl:col-span-1 bg-zinc-900/50 rounded-2xl border border-zinc-800 p-5 sm:p-6 h-fit">
           <form onSubmit={handleSubmit} className="space-y-5">
             <h3 className="text-base font-display font-bold text-white flex items-center gap-2 pb-2 border-b border-zinc-800">
               <Plus className="w-5 h-5 text-orange-500" />
@@ -203,7 +206,7 @@ export default function AgendaManager({
         </div>
 
         {/* Right Column: Dynamic Timeline with Filters */}
-        <div className="lg:col-span-7 bg-zinc-900/50 rounded-2xl border border-zinc-800 p-5 sm:p-6 flex flex-col">
+        <div id="agenda-list-section" className="lg:col-span-7 xl:col-span-1 bg-zinc-900/50 rounded-2xl border border-zinc-800 p-5 sm:p-6 flex flex-col">
           
           {/* Filtering Header Section */}
           <div className="space-y-4 pb-6 border-b border-zinc-800 mb-6">
@@ -308,6 +311,19 @@ export default function AgendaManager({
                             <p className="text-xs text-zinc-400 mt-1.5 whitespace-pre-line leading-relaxed">{event.description}</p>
                           )}
                         </div>
+
+                        {event.status === 'pending' && onSelectEventForSale && (
+                          <div className="pt-1.5">
+                            <button
+                              type="button"
+                              onClick={() => onSelectEventForSale(event.id)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-xs font-bold transition duration-200 select-none active:scale-95 shadow cursor-pointer font-sans"
+                            >
+                              <TrendingUp className="w-3.5 h-3.5" />
+                              <span>Registrar Vendas do Evento</span>
+                            </button>
+                          </div>
+                        )}
 
                         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-zinc-500 pt-2 border-t border-zinc-900">
                           <span className="flex items-center gap-1">
